@@ -1,245 +1,388 @@
 class TMTimer;
-class TimerEventHandler     //an abstract class for TMTimer
+class TimerEventHandler
 {
-  public:
-  virtual void onInterval(TMTimer *timer)=0;
+public:
+virtual void onInterval(TMTimer *timer)=0;
 };
 class TMTimer
 {
-  private:
-  int interval;
-  TimerEventHandler *timerEventHandler;
-  bool repeat;
-  bool isActive;
-  public:
-  TMTimer(int interval,TimerEventHandler *timerEventHandler,bool repeat=true);
-  void start();
-  void stop();
-  friend class TMTimerManager;    //TMTimerManager can access the private members now
+private:
+int interval;
+TimerEventHandler *timerEventHandler;
+bool repeat;
+bool isActive;
+public:
+TMTimer(int interval,TimerEventHandler *timerEventHandler,bool repeat=true);
+void start();
+void stop();
+friend class TMTimerManager;  
 };
 class TMTimerManager
 {
-  private:
-  class TMTimerNode
-  {
-    public:
-    TMTimer *timer;
-    TMTimerNode *next;
-    long int lastCalledOn;
-    TMTimerNode(TMTimer *timer)
-    {
-      this->lastCalledOn=0;
-      this->timer=timer;
-      this->next=NULL;
-    }
-  };
-  static TMTimerNode *start,*end;
-  TMTimerManager(){}      //private constructor so that no one can instantitate
-  public:
-  static void addTimer(TMTimer *timer);
-  static void emitEvents();
+private:
+class TMTimerNode
+{
+public:
+long int lastCalledOn;
+TMTimer *timer;
+TMTimerNode *next;
+TMTimerNode(TMTimer *timer)
+{
+this->timer=timer;
+this->next=NULL;
+this->lastCalledOn=0;
+}
+};
+static TMTimerNode *start,*end;
+TMTimerManager(){}
+public:
+static void addTimer(TMTimer *timer);
+static void emitEvents();
 };
 TMTimerManager::TMTimerNode *TMTimerManager::start=NULL;
 TMTimerManager::TMTimerNode *TMTimerManager::end=NULL;
-void TMTimerManager::addTimer(TMTimer *timer)
+void TMTimerManager::emitEvents()
 {
-  if(!timer) return;
-  if(timer->interval<=0) return;    //because it will never be 0 according to logic
-  TMTimerNode *node;
-  for(node=start;node;node=node->next)
+long int now=millis();
+TMTimerNode *t,*p1,*p2;
+for(t=start;t!=NULL;t=t->next)
+{
+if(t->timer->isActive && ((now-t->lastCalledOn)>t->timer->interval || now<t->lastCalledOn))
+{
+t->timer->timerEventHandler->onInterval(t->timer);
+t->lastCalledOn=now;
+if(t->timer->repeat==false) t->timer->stop();
+}
+}
+t=start;
+while(t!=NULL)
+{
+  if(t->timer->isActive==false)
   {
-    if(node->timer==timer) return;
-  }
-  node=new TMTimerNode(timer);
-  if(start==NULL)     //first node
-  {
-    start=end=node;
+    //logic to delete starts here...
+    if(t==start && t==end)  //only one node is there...
+    {
+      start=NULL;
+      end=NULL;
+      delete t;
+      break;
+    }
+    else if(t==start)  //first node to be deleted...
+    {
+      start=start->next;
+      delete t;
+      t=start;
+      break;
+    }
+    else if(t==end) //last node to be deleted
+    {
+      p2->next=NULL;
+      end=p2;
+      delete t;
+      break;
+    }
+    else  //any of the middle to be deleted...
+    {
+      p2->next=t->next;
+      delete t;
+      t=p2->next;
+    }
+    //logic to delete ends here...
   }
   else
   {
-    end->next=node;
-    end=node;
+    p2=t;
+    t=t->next;
   }
 }
-void TMTimerManager::emitEvents()
+}
+void TMTimerManager::addTimer(TMTimer *timer)
 {
-  //just to handle overflow case , in unsigned case it will start round trip from 0 if exceeds to upperbound
-  unsigned long int now=millis();
-  for(TMTimerNode *current=start;current;current=current->next)
-  {
-    if(current->timer->isActive && ((now-current->lastCalledOn)>current->timer->interval) || current->lastCalledOn>now)
-    {
-      current->timer->timerEventHandler->onInterval(current->timer);
-      current->lastCalledOn=now;
-      if(current->timer->repeat==false) current->timer->stop();
-    }
-  }
-  TMTimerNode *prev,*current;
-  current=start;
-  prev=NULL;
-  bool isDeletionDone=false;
-  while(current)
-  {
-    if(!current->timer->isActive)
-    {
-      //logic to delete the node to which current is pointing to...
-      if(current==start && current==end)
-      {
-        //only one node is there and it itself is inactive
-        start=end=NULL;
-        delete current;
-        isDeletionDone=true;
-      }
-      else if(current==start)
-      {
-        //first node
-        prev=current;
-        current=current->next;
-        //delete is used because the memory is allocated using new
-        delete prev;
-        start=current;
-        isDeletionDone=true;
-      }
-      else if(current==end)
-      {
-        //last node
-        prev->next=NULL;
-        end=prev;
-        delete current;
-        isDeletionDone=true;
-      }
-      else
-      {
-        //any of the middle node
-        prev->next=current->next;
-        delete current;
-        isDeletionDone=true;
-      }
-      if(isDeletionDone) break;
-    }
-    else 
-    {
-      prev=current;
-      current=current->next;
-    }
-  }
+if(timer==NULL) return;
+if(timer->interval<=0) return;
+TMTimerNode *node;
+for(node=start;node!=NULL;node=node->next)
+{
+if(node->timer==timer) return;
+}
+node=new TMTimerNode(timer); 
+if(start==NULL)
+{
+start=node;
+end=node;
+}
+else
+{
+end->next=node;
+end=node;
+}
 }
 TMTimer::TMTimer(int interval,TimerEventHandler *timerEventHandler,bool repeat)
 {
-  //interval in ms & address of timer
-  this->interval=interval;
-  this->timerEventHandler=timerEventHandler;
-  this->repeat=repeat;
-  this->isActive=true;
+this->interval=interval;
+this->timerEventHandler=timerEventHandler;
+this->repeat=repeat;
+this->isActive=true;
 }
 void TMTimer::start()
 {
-  TMTimerManager::addTimer(this);
+TMTimerManager::addTimer(this);
 }
 void TMTimer::stop()
 {
-  this->isActive=false; 
+this->isActive=false;
 }
+
+class TMLED;
+class LEDEventHandler
+{
+  public:
+  virtual void turnedOn(TMLED *led)=0;
+  virtual void turnedOff(TMLED *led)=0;  
+};
 
 class TMLED
 {
   private:
   int pin;
   bool isOn;
+  LEDEventHandler *ledEventHandler;
   public:
   TMLED(int pin);
   void turnOn();
   void turnOff();
-  void toggle();
+  void toggle();  
+  void setLEDEventHandler(LEDEventHandler *ledEventHandler);
+  bool isLEDOn();
+  bool isLEDOff();
 };
 TMLED::TMLED(int pin)
 {
   this->pin=pin;
   this->isOn=false;
   pinMode(this->pin,OUTPUT);
+  this->ledEventHandler=NULL;
 }
 void TMLED::turnOn()
 {
+  if(this->isOn) return;
   digitalWrite(this->pin,HIGH);
   this->isOn=true;
+  if(this->ledEventHandler!=NULL) this->ledEventHandler->turnedOn(this);
 }
 void TMLED::turnOff()
 {
+  if(this->isOn==false) return;
   digitalWrite(this->pin,LOW);
   this->isOn=false;
+  if(this->ledEventHandler!=NULL) this->ledEventHandler->turnedOff(this);
 }
 void TMLED::toggle()
 {
-  if(this->isOn) this->turnOff();
-  else this->turnOn();
+  if(this->isOn)
+  {
+    this->turnOff();
+    this->isOn=false;
+  }
+  else
+  {
+    this->turnOn();
+    this->isOn=true;
+  }
 }
-class Application
+void TMLED::setLEDEventHandler(LEDEventHandler *ledEventHandler)
+{
+  this->ledEventHandler=ledEventHandler;
+}
+bool TMLED::isLEDOn()
+{
+  return this->isOn==true;
+}
+bool TMLED::isLEDOff()
+{
+  return this->isOn==false;
+}
+class TMBlinkingLED;
+class BlinkingLEDEventHandler
 {
   public:
-  virtual void start()=0;
+  virtual void ledBlinked(TMBlinkingLED *tmBlinkingLED,int blinksCount);
+};
+class TMBlinkingLED:public TimerEventHandler
+{
+  private:
+  TMLED *tmled;
+  TMTimer *tmtimer;
+  int timesToBlink=0; 
+  bool isBlinking;
+  BlinkingLEDEventHandler *target;
+  int blinkCount;
+  public:
+  TMBlinkingLED(int pin,int timesToBlink,byte speed);
+  ~TMBlinkingLED();
+  void startBlinking();
+  void stopBlinking();
+  void onInterval(TMTimer *tmtimer);
+  void setBlinkingLEDEventHandler(BlinkingLEDEventHandler *target);
+};
+TMBlinkingLED::TMBlinkingLED(int pin,int timesToBlink,byte speed)
+{
+  if(speed<1) speed=1;
+  else if(speed>3) speed=3;
+  this->tmled=new TMLED(pin);
+  this->tmtimer=new TMTimer(1000*speed,this);
+  this->isBlinking=false;
+  if(timesToBlink<-1) timesToBlink=-1;  //-1 means , keep blinking
+  this->timesToBlink=timesToBlink;
+  this->target=NULL;
+  this->blinkCount=0;
+}
+TMBlinkingLED::~TMBlinkingLED()
+{
+  delete this->tmled;
+  delete this->tmtimer;
+}
+void TMBlinkingLED::startBlinking()
+{
+  if(this->timesToBlink==0) return;
+  this->tmtimer->start();
+  this->isBlinking=true;
+}
+void TMBlinkingLED::stopBlinking()
+{
+  this->tmtimer->stop();
+  this->isBlinking=false;
+  this->tmled->turnOff();
+}
+void TMBlinkingLED::onInterval(TMTimer *tmtimer)
+{
+  if(this->tmled->isLEDOff()) 
+  {
+    this->blinkCount++;
+    if(this->target!=NULL) 
+    {
+      this->target->ledBlinked(this,this->blinkCount); 
+    }
+    if(this->timesToBlink!=-1 && this->blinkCount==this->timesToBlink+1)
+    {
+      this->stopBlinking();
+    }
+  }
+  this->tmled->toggle();
+}
+void TMBlinkingLED::setBlinkingLEDEventHandler(BlinkingLEDEventHandler *target)
+{
+  this->target=target;
+}
+
+class Application
+{
+public:
+virtual void start()=0;
 };
 class ApplicationManager
 {
-  private:
-  static Application *application;  //will contain address of homeAutomation created by user
-  ApplicationManager(){}    //private constructor so it can't be instantitated
-  public:
-  static void startApplication(Application *application);
+private:
+static Application *application;
+ApplicationManager(){}
+public:
+static void startApplication(Application *application);
 };
 Application *ApplicationManager::application=NULL;
 void ApplicationManager::startApplication(Application *application)
 {
-  if(!application) return;
-  ApplicationManager::application=application;    //will store the address of homeAutomation created by user
-  ApplicationManager::application->start();   //will place a call to start() of homeAutomation
+delay(5000);
+if(application==NULL) return;
+ApplicationManager::application=application;
+ApplicationManager::application->start();
 }
 void loop()
 {
-  TMTimerManager::emitEvents();
+TMTimerManager::emitEvents();
 }
-//framework part ends here...
-//Assume that the following code is being written by IOTFramework User
-class HomeAutomation:public Application,TimerEventHandler
+//Framework part ends
+//The following code is being written by IOTFramework user...
+class HomeAutomation:public Application,TimerEventHandler,LEDEventHandler,BlinkingLEDEventHandler
 {
-  private:
-  TMTimer *t1,*t2;
-  TMLED *led1,*led2;
-  int blinkCount;
-  public:
-  HomeAutomation()
-  {
-    t1=new TMTimer(1000,this);
-    t2=new TMTimer(2000,this);
-    led1=new TMLED(10);
-    led2=new TMLED(11);
-    blinkCount=0;
+TMTimer *t1,*t2;
+TMLED *led1,*led2;
+TMBlinkingLED *blinkingLED1;
+TMBlinkingLED *blinkingLED2;
+bool led1Status,led2Status;
+int blinkCount;
+public:
+HomeAutomation()
+{
+t1=new TMTimer(2000,this);
+t2=new TMTimer(2000,this);
+led1=new TMLED(6);
+led1->setLEDEventHandler(this);
+led2=new TMLED(7);
+led2->setLEDEventHandler(this);
+led1Status=false;
+led2Status=false;
+blinkingLED1=new TMBlinkingLED(12,5,1); //blink 5 times
+blinkingLED1->setBlinkingLEDEventHandler(this);
+blinkingLED2=new TMBlinkingLED(11,-1,3); //blink infinite times
+blinkingLED2->setBlinkingLEDEventHandler(this);
+this->blinkCount=0;
+}
+~HomeAutomation()
+{
+delete t1;
+delete t2;
+delete led1;
+delete led2;
+delete blinkingLED1;
+delete blinkingLED2;
+}
+public:
+void start()
+{
+t1->start();
+t2->start();
+blinkingLED1->startBlinking();
+blinkingLED2->startBlinking();
+}
+void onInterval(TMTimer *timer)
+{
+  if(timer==t1)
+  { 
+    led1->toggle();
   }
-  ~HomeAutomation()
+  if(timer==t2)
   {
-    delete t1;
-    delete t2;  
-    delete led1;
-    delete led2;
+    led2->toggle();
   }
-  void start()    //defining the pure virtual function declared in the abstract class Application
+}
+void turnedOn(TMLED *led)
+{
+  //if(led==led1) Serial.println("LED 1 connected to pin 6 turned on");
+  //else if(led==led2) Serial.println("LED 2 connected to pin 7 turned on");
+}
+void turnedOff(TMLED *led)
+{
+  //if(led==led1) Serial.println("LED 1 connected to pin 6 turned off");
+  // else if(led==led2) Serial.println("LED 2 connected to pin 7 turned off");
+}
+void ledBlinked(TMBlinkingLED *tmBlinkingLED,int blinksCount)
+{
+  if(tmBlinkingLED==blinkingLED1)
   {
-    t1->start();    //start the timer and register it in TMTimerManager
-    t2->start();    //start the timer and register it in TMTimerManager
+    Serial.print("First led blinked for ");
+    Serial.print(blinksCount);
+    Serial.println(" times");
   }
-  //onInterval will get called on specified intervals for respective timer's
-  void onInterval(TMTimer *timer)   //defining the pure virtual function declared in the abstract class TimerEventHandler
+  if(tmBlinkingLED==blinkingLED2)
   {
-    if(timer==t1)
-    {
-      led1->toggle();
-    }
-    if(timer==t2)
-    {
-      led2->toggle();
-    }
+    Serial.print("Second led blinked for ");
+    Serial.print(blinksCount);
+    Serial.println(" times");
   }
+}
 };
 void setup()
 {
-  ApplicationManager::startApplication(new HomeAutomation());
+Serial.begin(9600);
+ApplicationManager::startApplication(new  HomeAutomation());
 }
